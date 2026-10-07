@@ -1,0 +1,2457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- ===== STEP 1: PASTE YOUR API KEY BETWEEN THE QUOTES ON LINE 6 ===== -->
+<script>
+const API_KEY = "AQ.Ab8RN6Izo1sgEv6_zglAbtwoQhdUkrVXWtculZeEpYOivMiAFA";
+const MODEL = "gemini-3.5-flash-lite";
+</script>
+
+<script>
+// ===== YOUR CHATBOT'S INSTRUCTIONS (RTCC) =====
+const SYSTEM_PROMPT = `
+ROLE: You are an expert AI developer and product designer.
+TASK: Build an AI Meeting Minutes Assistant that records/uploads meeting audio, converts it to text, summarizes the discussion, extracts decisions and action items, assigns tasks, and identifies deadlines.
+CONTEXT: The app should help users save time by automatically creating organized meeting minutes from conversations.
+CONSTRAINTS: Keep the UI simple, protect user data, avoid making up information, and mark unknown assignees or deadlines as “Not specified.”
+OUTPUT: Provide the project architecture, tech stack, main features, database structure, API flow, UI design, and MVP development plan.
+LANGUAGE: If the user writes in Hindi or Hinglish, reply in the same language.
+`;
+</script>
+
+<script>
+async function callAI(history) {
+  // history = [{ role: "user" | "assistant", text: "..." }, ...]
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": API_KEY.trim() },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: history.map(m => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: m.text }]
+      }))
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error("Error " + res.status + ": " + ((data.error && data.error.message) || "Request failed"));
+  const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+  const text = parts.filter(p => p.text && !p.thought).map(p => p.text).join("");
+  if (!text) throw new Error("The AI sent an empty reply. Try asking again.");
+  return text;
+}
+</script>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#7c3aed">
+<title>talk2task — AI Productivity Assistant</title>
+
+<style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #f5f3ff;
+  --panel: rgba(255,255,255,.88);
+  --panel-solid: #ffffff;
+  --text: #171326;
+  --muted: #716b82;
+  --border: #e8e2f2;
+  --primary: #7c3aed;
+  --primary-2: #a855f7;
+  --primary-soft: #f0e7ff;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --shadow: 0 18px 50px rgba(64,35,105,.10);
+  --user: linear-gradient(135deg,#7c3aed,#9333ea);
+}
+
+body.dark {
+  --bg: #0b0812;
+  --panel: rgba(22,17,32,.94);
+  --panel-solid: #171120;
+  --text: #f5f2fa;
+  --muted: #aaa0b8;
+  --border: #2d2438;
+  --primary-soft: #26153b;
+  --shadow: 0 18px 60px rgba(0,0,0,.35);
+}
+
+body {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(168,85,247,.18), transparent 28%),
+    radial-gradient(circle at 90% 10%, rgba(124,58,237,.15), transparent 25%),
+    var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  transition: .25s ease;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.app {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 310px 1fr;
+}
+
+/* SIDEBAR */
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+}
+
+.logo-box {
+  background: linear-gradient(135deg,#5b21b6,#9333ea);
+  color: white;
+  border-radius: 20px;
+  padding: 17px;
+  box-shadow: 0 15px 35px rgba(124,58,237,.25);
+}
+
+.logo-title {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -.5px;
+}
+
+.creator {
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  color: white;
+}
+
+.sidebar-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  color: var(--muted);
+  font-weight: 800;
+  margin-top: 3px;
+}
+
+.dashboard-card {
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 17px;
+  box-shadow: var(--shadow);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2,1fr);
+  gap: 10px;
+}
+
+.stat {
+  background: var(--primary-soft);
+  border-radius: 15px;
+  padding: 12px;
+}
+
+.stat-number {
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.motivation {
+  line-height: 1.5;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.motivation strong {
+  color: var(--text);
+}
+
+.habit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.habit-card {
+  border: 1px solid var(--border);
+  background: var(--panel-solid);
+  padding: 12px;
+  border-radius: 16px;
+}
+
+.habit-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.habit-name {
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.habit-icon {
+  font-size: 20px;
+  margin-right: 6px;
+}
+
+.habit-time {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.progress {
+  height: 7px;
+  background: var(--border);
+  border-radius: 100px;
+  overflow: hidden;
+  margin: 9px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg,#7c3aed,#c084fc);
+  border-radius: inherit;
+  transition: width .35s ease;
+}
+
+.complete-btn {
+  width: 100%;
+  border: 0;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 800;
+  font-size: 12px;
+}
+
+.complete-btn.done {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+body.dark .complete-btn.done {
+  background: #12351f;
+  color: #86efac;
+}
+
+.add-habit {
+  width: 100%;
+  border: 1px dashed var(--primary);
+  background: transparent;
+  color: var(--primary);
+  padding: 11px;
+  border-radius: 13px;
+  font-weight: 800;
+}
+
+.badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+/* MAIN */
+.main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.header {
+  height: 75px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  backdrop-filter: blur(20px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 25px;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bot-logo {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg,#7c3aed,#a855f7);
+  color: white;
+  font-size: 22px;
+  box-shadow: 0 8px 25px rgba(124,58,237,.25);
+}
+
+.header-title {
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.header-subtitle {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  background: var(--panel-solid);
+  color: var(--text);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+}
+
+.icon-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 410px;
+  gap: 18px;
+  padding: 18px;
+}
+
+/* CHAT */
+.chat-panel {
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-top {
+  padding: 17px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-top-title {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.chat-top-text {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+  scroll-behavior: smooth;
+}
+
+.message-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 17px;
+  align-items: flex-start;
+}
+
+.message-row.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  background: var(--primary-soft);
+  font-size: 17px;
+}
+
+.message-content {
+  max-width: min(78%,720px);
+}
+
+.bubble {
+  padding: 13px 15px;
+  border-radius: 18px;
+  line-height: 1.55;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.bot-bubble {
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-top-left-radius: 5px;
+}
+
+.user-bubble {
+  color: white;
+  background: var(--user);
+  border-top-right-radius: 5px;
+  box-shadow: 0 8px 22px rgba(124,58,237,.18);
+}
+
+.error-bubble {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-top-left-radius: 5px;
+}
+
+body.dark .error-bubble {
+  background: #351515;
+  color: #fecaca;
+  border-color: #632020;
+}
+
+.message-tools {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.tool-btn {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  padding: 3px 5px;
+}
+
+.tool-btn:hover {
+  color: var(--primary);
+}
+
+.markdown p {
+  margin-bottom: 8px;
+}
+
+.markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown strong {
+  font-weight: 900;
+}
+
+.markdown em {
+  font-style: italic;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 7px 0 7px 22px;
+}
+
+.markdown li {
+  margin: 3px 0;
+}
+
+.markdown code {
+  background: var(--primary-soft);
+  color: var(--primary);
+  padding: 2px 5px;
+  border-radius: 5px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+.markdown pre {
+  background: #15111b;
+  color: #f5f5f5;
+  padding: 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 9px 0;
+}
+
+.markdown pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.starter {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-radius: 100px;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.chip:hover {
+  transform: translateY(-1px);
+}
+
+.typing {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin: 0 24px 12px;
+}
+
+.typing.show {
+  display: flex;
+}
+
+.typing-bubble {
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 10px 13px;
+  display: flex;
+  gap: 4px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: bounce 1.1s infinite;
+}
+
+.dot:nth-child(2) {
+  animation-delay: .15s;
+}
+
+.dot:nth-child(3) {
+  animation-delay: .3s;
+}
+
+@keyframes bounce {
+  0%,60%,100% { transform: translateY(0); opacity:.5; }
+  30% { transform: translateY(-5px); opacity:1; }
+}
+
+.composer {
+  border-top: 1px solid var(--border);
+  padding: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  background: var(--panel);
+}
+
+.input-wrap {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: 17px;
+  padding: 6px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 42px;
+  max-height: 130px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 10px;
+  line-height: 1.4;
+}
+
+.send-btn {
+  width: 45px;
+  height: 42px;
+  border: 0;
+  border-radius: 13px;
+  background: linear-gradient(135deg,#7c3aed,#9333ea);
+  color: white;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.send-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.mic-btn {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 17px;
+}
+
+.mic-btn.recording {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+/* RIGHT PANEL */
+.analytics {
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 21px;
+  padding: 17px;
+  box-shadow: var(--shadow);
+}
+
+.panel-title {
+  font-size: 14px;
+  font-weight: 900;
+  margin-bottom: 3px;
+}
+
+.panel-subtitle {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 13px;
+}
+
+.chart {
+  height: 135px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 7px;
+  padding: 10px 3px 0;
+}
+
+.bar-wrap {
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+}
+
+.bar {
+  width: 70%;
+  max-width: 30px;
+  min-height: 4px;
+  border-radius: 8px 8px 3px 3px;
+  background: linear-gradient(180deg,#a855f7,#7c3aed);
+  transition: height .5s ease;
+}
+
+.bar-label {
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7,1fr);
+  gap: 5px;
+}
+
+.cal-day {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  background: var(--border);
+  color: var(--muted);
+}
+
+.cal-day.done {
+  background: #22c55e;
+  color: white;
+}
+
+.cal-day.today {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.empty {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: 15px 5px;
+}
+
+/* MODAL */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(10,5,20,.55);
+  backdrop-filter: blur(5px);
+  display: none;
+  place-items: center;
+  z-index: 100;
+  padding: 20px;
+}
+
+.modal.show {
+  display: grid;
+}
+
+.modal-card {
+  width: min(420px,100%);
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 22px;
+  box-shadow: 0 30px 90px rgba(0,0,0,.3);
+}
+
+.modal-card h2 {
+  margin-bottom: 15px;
+}
+
+.field {
+  margin-bottom: 13px;
+}
+
+.field label {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  margin-bottom: 5px;
+}
+
+.field input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 11px;
+  outline: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.modal-actions button {
+  flex: 1;
+  padding: 11px;
+  border-radius: 11px;
+  border: 0;
+  font-weight: 800;
+}
+
+.cancel {
+  background: var(--border);
+  color: var(--text);
+}
+
+.save-habit {
+  background: var(--primary);
+  color: white;
+}
+
+/* TOAST */
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  background: #17111f;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 13px;
+  box-shadow: 0 15px 40px rgba(0,0,0,.25);
+  font-size: 12px;
+  transform: translateY(100px);
+  opacity: 0;
+  transition: .3s ease;
+  z-index: 200;
+}
+
+.toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* MOBILE */
+.mobile-menu {
+  display: none;
+}
+
+@media (max-width: 1050px) {
+  .app {
+    grid-template-columns: 250px 1fr;
+  }
+
+  .content {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics {
+    display: grid;
+    grid-template-columns: repeat(2,1fr);
+    overflow: visible;
+  }
+}
+
+@media (max-width: 750px) {
+  .app {
+    display: block;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .main {
+    height: 100vh;
+  }
+
+  .header {
+    padding: 0 12px;
+    height: 68px;
+  }
+
+  .header-title {
+    font-size: 17px;
+  }
+
+  .content {
+    padding: 10px;
+  }
+
+  .analytics {
+    display: none;
+  }
+
+  .chat-panel {
+    border-radius: 18px;
+  }
+
+  .messages {
+    padding: 16px 12px;
+  }
+
+  .message-content {
+    max-width: 84%;
+  }
+
+  .bubble {
+    font-size: 13px;
+  }
+
+  .typing {
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+
+  .creator {
+    font-size: 8px;
+  }
+
+  .header-actions .clear-label {
+    display: none;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+
+    <div class="logo-box">
+      <div class="logo-title">✦ talk2task</div>
+      <div class="creator">DIVYANSH AGGARWAL</div>
+    </div>
+
+    <div class="sidebar-title">Home Dashboard</div>
+
+    <div class="dashboard-card">
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="stat-number" id="completionStat">0%</div>
+          <div class="stat-label">Completion</div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-number" id="streakStat">0</div>
+          <div class="stat-label">Current Streak</div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-number" id="doneStat">0/0</div>
+          <div class="stat-label">Today</div>
+        </div>
+
+        <div class="stat">
+          <div class="stat-number" id="longestStat">0</div>
+          <div class="stat-label">Longest</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-title">Daily Motivation</div>
+
+    <div class="dashboard-card">
+      <div class="motivation" id="motivation">
+        Start small. Stay consistent. Your future self will thank you.
+      </div>
+    </div>
+
+    <div class="sidebar-title">Your Habits</div>
+
+    <div class="habit-list" id="habitList"></div>
+
+    <button class="add-habit" id="addHabitBtn">
+      + Add New Habit
+    </button>
+
+    <div class="sidebar-title">Achievements</div>
+
+    <div class="dashboard-card">
+      <div class="badges" id="badges"></div>
+    </div>
+
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <header class="header">
+
+      <div class="header-left">
+        <div class="bot-logo">🤖</div>
+
+        <div>
+          <div class="header-title">talk2task</div>
+          <div class="header-subtitle">
+            Your futuristic AI productivity assistant
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+
+        <button
+          class="icon-btn"
+          id="themeBtn"
+          title="Dark / Light mode"
+          aria-label="Dark / Light mode">
+          🌙
+        </button>
+
+        <button
+          class="icon-btn"
+          id="clearBtn"
+          title="Clear chat"
+          aria-label="Clear chat">
+          🗑️
+        </button>
+
+      </div>
+
+    </header>
+
+    <section class="content">
+
+      <!-- CHAT -->
+      <section class="chat-panel">
+
+        <div class="chat-top">
+          <div class="chat-top-title">AI Productivity Chat</div>
+          <div class="chat-top-text">
+            Ask about habits, productivity, meeting minutes, or personal finance.
+          </div>
+        </div>
+
+        <div class="messages" id="messages"></div>
+
+        <div class="typing" id="typing">
+          <div class="avatar">🤖</div>
+          <div class="typing-bubble">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+
+        <div class="composer">
+
+          <div class="input-wrap">
+
+            <textarea
+              id="messageInput"
+              rows="1"
+              placeholder="Ask talk2task something..."
+              autocomplete="off"></textarea>
+
+            <button
+              class="mic-btn"
+              id="micBtn"
+              title="Voice input"
+              aria-label="Voice input">
+              🎙️
+            </button>
+
+          </div>
+
+          <button
+            class="send-btn"
+            id="sendBtn"
+            title="Send message"
+            aria-label="Send message">
+            ➤
+          </button>
+
+        </div>
+
+      </section>
+
+      <!-- ANALYTICS -->
+      <aside class="analytics">
+
+        <div class="panel">
+
+          <div class="panel-title">📊 Weekly Progress</div>
+
+          <div class="panel-subtitle">
+            Your habit completion this week
+          </div>
+
+          <div class="chart" id="weeklyChart"></div>
+
+        </div>
+
+        <div class="panel">
+
+          <div class="panel-title">🔥 Streak Calendar</div>
+
+          <div class="panel-subtitle">
+            Green days mean you completed your habits.
+          </div>
+
+          <div class="calendar" id="calendar"></div>
+
+        </div>
+
+        <div class="panel">
+
+          <div class="panel-title">🏆 Achievements</div>
+
+          <div class="panel-subtitle">
+            Keep going to unlock more badges.
+          </div>
+
+          <div class="badges" id="analyticsBadges"></div>
+
+        </div>
+
+        <div class="panel">
+
+          <div class="panel-title">💡 Productivity Tip</div>
+
+          <div class="panel-subtitle">
+            Today's suggestion
+          </div>
+
+          <div class="motivation" id="tip">
+            Focus on one important task before checking distractions.
+          </div>
+
+        </div>
+
+      </aside>
+
+    </section>
+
+  </main>
+
+</div>
+
+<!-- ADD HABIT MODAL -->
+<div class="modal" id="habitModal">
+
+  <div class="modal-card">
+
+    <h2>✨ Add a Habit</h2>
+
+    <div class="field">
+      <label>Habit name</label>
+      <input
+        id="habitName"
+        type="text"
+        placeholder="e.g. Read for 20 minutes">
+    </div>
+
+    <div class="field">
+      <label>Icon</label>
+      <input
+        id="habitIcon"
+        type="text"
+        maxlength="2"
+        placeholder="📚">
+    </div>
+
+    <div class="field">
+      <label>Reminder time</label>
+      <input
+        id="habitTime"
+        type="time">
+    </div>
+
+    <div class="modal-actions">
+      <button class="cancel" id="cancelHabit">Cancel</button>
+      <button class="save-habit" id="saveHabit">Add Habit</button>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ======================================================
+// APPLICATION STATE
+// ======================================================
+
+let history = [];
+let waiting = false;
+let recognition = null;
+let isRecording = false;
+
+const defaultHabits = [
+  {
+    id: 1,
+    name: "Drink Water",
+    icon: "💧",
+    time: "09:00",
+    completed: false,
+    days: {}
+  },
+  {
+    id: 2,
+    name: "Exercise",
+    icon: "🏃",
+    time: "07:00",
+    completed: false,
+    days: {}
+  },
+  {
+    id: 3,
+    name: "Read",
+    icon: "📚",
+    time: "21:00",
+    completed: false,
+    days: {}
+  }
+];
+
+let habits = [];
+let completedDates = {};
+let theme = "light";
+
+// ======================================================
+// DOM ELEMENTS
+// ======================================================
+
+const messagesEl = document.getElementById("messages");
+const inputEl = document.getElementById("messageInput");
+const sendBtn = document.getElementById("sendBtn");
+const typingEl = document.getElementById("typing");
+const clearBtn = document.getElementById("clearBtn");
+const themeBtn = document.getElementById("themeBtn");
+const micBtn = document.getElementById("micBtn");
+const habitList = document.getElementById("habitList");
+const addHabitBtn = document.getElementById("addHabitBtn");
+const habitModal = document.getElementById("habitModal");
+const cancelHabit = document.getElementById("cancelHabit");
+const saveHabit = document.getElementById("saveHabit");
+const habitName = document.getElementById("habitName");
+const habitIcon = document.getElementById("habitIcon");
+const habitTime = document.getElementById("habitTime");
+const toastEl = document.getElementById("toast");
+
+// ======================================================
+// STORAGE
+// ======================================================
+
+function saveAll() {
+  try {
+    localStorage.setItem("talk2task_history", JSON.stringify(history));
+    localStorage.setItem("talk2task_habits", JSON.stringify(habits));
+    localStorage.setItem("talk2task_dates", JSON.stringify(completedDates));
+    localStorage.setItem("talk2task_theme", theme);
+  } catch (error) {
+    console.warn("Storage unavailable:", error);
+  }
+}
+
+function loadAll() {
+  try {
+    const savedHistory = localStorage.getItem("talk2task_history");
+    const savedHabits = localStorage.getItem("talk2task_habits");
+    const savedDates = localStorage.getItem("talk2task_dates");
+    const savedTheme = localStorage.getItem("talk2task_theme");
+
+    history = savedHistory ? JSON.parse(savedHistory) : [];
+    habits = savedHabits ? JSON.parse(savedHabits) : defaultHabits;
+    completedDates = savedDates ? JSON.parse(savedDates) : {};
+    theme = savedTheme || "light";
+  } catch (error) {
+    history = [];
+    habits = JSON.parse(JSON.stringify(defaultHabits));
+    completedDates = {};
+    theme = "light";
+  }
+}
+
+// ======================================================
+// HELPERS
+// ======================================================
+
+function todayKey() {
+  const date = new Date();
+
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+
+  return `${y}-${m}-${d}`;
+}
+
+function dateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+
+  return `${y}-${m}-${d}`;
+}
+
+function escapeHTML(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// ======================================================
+// BASIC MARKDOWN RENDERER
+// Escape first, then apply safe formatting.
+// ======================================================
+
+function renderMarkdown(text) {
+  let safe = escapeHTML(text);
+
+  const codeBlocks = [];
+
+  safe = safe.replace(/```([\s\S]*?)```/g, function(match, code) {
+    const index = codeBlocks.length;
+    codeBlocks.push(
+      "<pre><code>" +
+      code.trim() +
+      "</code></pre>"
+    );
+    return `___CODEBLOCK_${index}___`;
+  });
+
+  safe = safe.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+
+  safe = safe.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+
+  safe = safe.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+
+  const lines = safe.split("\n");
+  let html = "";
+  let inUL = false;
+  let inOL = false;
+
+  function closeLists() {
+    if (inUL) {
+      html += "</ul>";
+      inUL = false;
+    }
+
+    if (inOL) {
+      html += "</ol>";
+      inOL = false;
+    }
+  }
+
+  for (let line of lines) {
+
+    if (/^\s*[-*]\s+/.test(line)) {
+
+      if (!inUL) {
+        closeLists();
+        html += "<ul>";
+        inUL = true;
+      }
+
+      html += "<li>" + line.replace(/^\s*[-*]\s+/, "") + "</li>";
+      continue;
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+
+      if (!inOL) {
+        closeLists();
+        html += "<ol>";
+        inOL = true;
+      }
+
+      html += "<li>" + line.replace(/^\s*\d+\.\s+/, "") + "</li>";
+      continue;
+    }
+
+    closeLists();
+
+    if (line.trim() === "") {
+      html += "<br>";
+    } else {
+      html += "<p>" + line + "</p>";
+    }
+  }
+
+  closeLists();
+
+  html = html.replace(
+    /___CODEBLOCK_(\d+)___/g,
+    function(match, index) {
+      return codeBlocks[Number(index)];
+    }
+  );
+
+  return html;
+}
+
+// ======================================================
+// THEME
+// ======================================================
+
+function applyTheme() {
+  document.body.classList.toggle("dark", theme === "dark");
+  themeBtn.textContent = theme === "dark" ? "☀️" : "🌙";
+}
+
+themeBtn.addEventListener("click", function() {
+  theme = theme === "dark" ? "light" : "dark";
+  applyTheme();
+  saveAll();
+});
+
+// ======================================================
+// CHAT MESSAGES
+// ======================================================
+
+function addMessage(role, text, save = true, isError = false) {
+
+  const row = document.createElement("div");
+  row.className = "message-row " + role;
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.textContent = role === "user" ? "🙂" : "🤖";
+
+  const content = document.createElement("div");
+  content.className = "message-content";
+
+  const bubble = document.createElement("div");
+
+  bubble.className =
+    "bubble " +
+    (role === "user" ? "user-bubble" : "bot-bubble") +
+    (isError ? " error-bubble" : "");
+
+  if (role === "assistant" && !isError) {
+    bubble.classList.add("markdown");
+    bubble.innerHTML = renderMarkdown(text);
+  } else {
+    bubble.textContent = text;
+  }
+
+  content.appendChild(bubble);
+
+  if (role === "assistant" && !isError) {
+
+    const tools = document.createElement("div");
+    tools.className = "message-tools";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "tool-btn";
+    copyBtn.textContent = "📋 Copy";
+
+    copyBtn.addEventListener("click", async function() {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast("Copied to clipboard!");
+      } catch (error) {
+        showToast("Copy failed. Select and copy the text manually.");
+      }
+    });
+
+    const speakBtn = document.createElement("button");
+    speakBtn.className = "tool-btn";
+    speakBtn.textContent = "🔊 Speak";
+
+    speakBtn.addEventListener("click", function() {
+
+      if (!("speechSynthesis" in window)) {
+        showToast("Speech synthesis is not supported.");
+        return;
+      }
+
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = detectLanguage(text);
+
+      window.speechSynthesis.speak(utterance);
+    });
+
+    tools.appendChild(copyBtn);
+    tools.appendChild(speakBtn);
+
+    content.appendChild(tools);
+  }
+
+  row.appendChild(avatar);
+  row.appendChild(content);
+
+  messagesEl.appendChild(row);
+
+  scrollToBottom();
+
+  if (save) {
+    saveAll();
+  }
+}
+
+function detectLanguage(text) {
+
+  const hindiCharacters = /[\u0900-\u097F]/;
+
+  if (hindiCharacters.test(text)) {
+    return "hi-IN";
+  }
+
+  return "en-IN";
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(function() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  });
+}
+
+// ======================================================
+// WELCOME MESSAGE
+// ======================================================
+
+function showWelcome() {
+
+  const welcome =
+    "Hi! I'm **talk2task** 🤖\n\n" +
+    "I can help you with productivity, habits, meeting minutes, " +
+    "action items, deadlines, and personal finance planning.\n\n" +
+    "What would you like to work on today?";
+
+  addMessage("assistant", welcome);
+
+  const starter = document.createElement("div");
+  starter.className = "starter";
+
+  const questions = [
+    "Help me build a daily habit plan",
+    "How do I create meeting minutes?",
+    "Help me track my productivity"
+  ];
+
+  questions.forEach(function(question) {
+
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.textContent = question;
+
+    chip.addEventListener("click", function() {
+      inputEl.value = question;
+      sendMessage();
+    });
+
+    starter.appendChild(chip);
+  });
+
+  const lastRow = messagesEl.lastElementChild;
+
+  if (lastRow) {
+    const content = lastRow.querySelector(".message-content");
+
+    if (content) {
+      content.appendChild(starter);
+    }
+  }
+}
+
+// ======================================================
+// SEND MESSAGE
+// ======================================================
+
+async function sendMessage() {
+
+  const text = inputEl.value.trim();
+
+  if (!text || waiting) {
+    return;
+  }
+
+  if (
+    !API_KEY ||
+    !API_KEY.trim() ||
+    API_KEY.trim() === "PASTE_YOUR_API_KEY_HERE"
+  ) {
+
+    addMessage(
+      "assistant",
+      "Paste your API key on line 6 of index.html, save, and refresh.",
+      true,
+      true
+    );
+
+    return;
+  }
+
+  addMessage("user", text);
+
+  history.push({
+    role: "user",
+    text: text
+  });
+
+  inputEl.value = "";
+  autoResize();
+
+  waiting = true;
+  sendBtn.disabled = true;
+  typingEl.classList.add("show");
+
+  scrollToBottom();
+
+  try {
+
+    const reply = await callAI(history);
+
+    history.push({
+      role: "assistant",
+      text: reply
+    });
+
+    addMessage("assistant", reply);
+
+    saveAll();
+
+  } catch (error) {
+
+    const fullError =
+      error && error.message
+        ? error.message
+        : String(error);
+
+    addMessage(
+      "assistant",
+      "AI ERROR:\n\n" + fullError,
+      false,
+      true
+    );
+
+  } finally {
+
+    waiting = false;
+    sendBtn.disabled = false;
+    typingEl.classList.remove("show");
+
+    inputEl.focus();
+    scrollToBottom();
+  }
+}
+
+// ======================================================
+// ENTER / SHIFT+ENTER
+// ======================================================
+
+inputEl.addEventListener("keydown", function(event) {
+
+  if (event.key === "Enter" && !event.shiftKey) {
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!waiting) {
+      sendMessage();
+    }
+  }
+});
+
+// ======================================================
+// SEND BUTTON
+// ======================================================
+
+sendBtn.addEventListener("click", function() {
+  if (!waiting) {
+    sendMessage();
+  }
+});
+
+// ======================================================
+// TEXTAREA AUTO RESIZE
+// ======================================================
+
+function autoResize() {
+
+  inputEl.style.height = "auto";
+
+  inputEl.style.height =
+    Math.min(inputEl.scrollHeight, 130) + "px";
+}
+
+inputEl.addEventListener("input", autoResize);
+
+// ======================================================
+// CLEAR CHAT
+// ======================================================
+
+clearBtn.addEventListener("click", function() {
+
+  const confirmed = confirm(
+    "Clear the entire chat history?"
+  );
+
+  if (!confirmed) {
+    return;
+  }
+
+  history = [];
+
+  messagesEl.innerHTML = "";
+
+  localStorage.removeItem("talk2task_history");
+
+  showWelcome();
+
+  showToast("Chat cleared.");
+});
+
+// ======================================================
+// TOAST
+// ======================================================
+
+let toastTimer = null;
+
+function showToast(message) {
+
+  toastEl.textContent = message;
+  toastEl.classList.add("show");
+
+  clearTimeout(toastTimer);
+
+  toastTimer = setTimeout(function() {
+    toastEl.classList.remove("show");
+  }, 2200);
+}
+
+// ======================================================
+// HABITS
+// ======================================================
+
+function renderHabits() {
+
+  habitList.innerHTML = "";
+
+  if (!habits.length) {
+
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No habits yet. Add your first habit!";
+    habitList.appendChild(empty);
+
+    return;
+  }
+
+  habits.forEach(function(habit) {
+
+    const card = document.createElement("div");
+    card.className = "habit-card";
+
+    const top = document.createElement("div");
+    top.className = "habit-top";
+
+    const name = document.createElement("div");
+    name.className = "habit-name";
+
+    name.innerHTML =
+      '<span class="habit-icon">' +
+      escapeHTML(habit.icon || "⭐") +
+      "</span>" +
+      escapeHTML(habit.name);
+
+    const time = document.createElement("div");
+    time.className = "habit-time";
+    time.textContent = habit.time
+      ? "⏰ " + habit.time
+      : "No reminder";
+
+    top.appendChild(name);
+    top.appendChild(time);
+
+    const progress = document.createElement("div");
+    progress.className = "progress";
+
+    const fill = document.createElement("div");
+    fill.className = "progress-fill";
+
+    fill.style.width =
+      habit.completed ? "100%" : "0%";
+
+    progress.appendChild(fill);
+
+    const button = document.createElement("button");
+
+    button.className =
+      "complete-btn " +
+      (habit.completed ? "done" : "");
+
+    button.textContent =
+      habit.completed
+        ? "✓ Completed today"
+        : "Mark as complete";
+
+    button.addEventListener("click", function() {
+      toggleHabit(habit.id);
+    });
+
+    card.appendChild(top);
+    card.appendChild(progress);
+    card.appendChild(button);
+
+    habitList.appendChild(card);
+  });
+
+  updateDashboard();
+}
+
+function toggleHabit(id) {
+
+  const habit = habits.find(function(item) {
+    return item.id === id;
+  });
+
+  if (!habit) {
+    return;
+  }
+
+  habit.completed = !habit.completed;
+
+  const today = todayKey();
+
+  if (!habit.days) {
+    habit.days = {};
+  }
+
+  habit.days[today] = habit.completed;
+
+  updateCompletedDate();
+
+  saveAll();
+  renderHabits();
+  renderCalendar();
+  renderWeeklyChart();
+
+  showToast(
+    habit.completed
+      ? "Habit completed! 🔥"
+      : "Habit marked incomplete."
+  );
+}
+
+function updateCompletedDate() {
+
+  const today = todayKey();
+
+  completedDates[today] =
+    habits.length > 0 &&
+    habits.every(function(habit) {
+      return habit.completed;
+    });
+}
+
+// ======================================================
+// DASHBOARD
+// ======================================================
+
+function getCompletionPercentage() {
+
+  if (!habits.length) {
+    return 0;
+  }
+
+  const completed = habits.filter(function(habit) {
+    return habit.completed;
+  }).length;
+
+  return Math.round(
+    (completed / habits.length) * 100
+  );
+}
+
+function calculateCurrentStreak() {
+
+  let streak = 0;
+  const date = new Date();
+
+  while (true) {
+
+    const key = dateKey(date);
+
+    if (completedDates[key]) {
+      streak++;
+      date.setDate(date.getDate() - 1);
+    } else {
+      break;
+    }
+
+    if (streak > 1000) {
+      break;
+    }
+  }
+
+  return streak;
+}
+
+function calculateLongestStreak() {
+
+  const keys = Object.keys(completedDates)
+    .filter(function(key) {
+      return completedDates[key];
+    })
+    .sort();
+
+  if (!keys.length) {
+    return 0;
+  }
+
+  let longest = 1;
+  let current = 1;
+
+  for (let i = 1; i < keys.length; i++) {
+
+    const previous = new Date(keys[i - 1]);
+    const currentDate = new Date(keys[i]);
+
+    const difference =
+      Math.round(
+        (currentDate - previous) /
+        (1000 * 60 * 60 * 24)
+      );
+
+    if (difference === 1) {
+      current++;
+      longest = Math.max(longest, current);
+    } else {
+      current = 1;
+    }
+  }
+
+  return longest;
+}
+
+function updateDashboard() {
+
+  const percentage =
+    getCompletionPercentage();
+
+  const done =
+    habits.filter(function(habit) {
+      return habit.completed;
+    }).length;
+
+  const current =
+    calculateCurrentStreak();
+
+  const longest =
+    calculateLongestStreak();
+
+  document.getElementById("completionStat")
+    .textContent = percentage + "%";
+
+  document.getElementById("doneStat")
+    .textContent = done + "/" + habits.length;
+
+  document.getElementById("streakStat")
+    .textContent = current;
+
+  document.getElementById("longestStat")
+    .textContent = longest;
+
+  updateMotivation(
+    percentage,
+    current,
+    done
+  );
+
+  renderBadges();
+}
+
+// ======================================================
+// MOTIVATION
+// ======================================================
+
+function updateMotivation(
+  percentage,
+  streak,
+  done
+) {
+
+  const motivation =
+    document.getElementById("motivation");
+
+  const tip =
+    document.getElementById("tip");
+
+  if (percentage === 100) {
+
+    motivation.innerHTML =
+      "<strong>Perfect day! 🔥</strong><br>" +
+      "You completed every habit. Keep the streak alive.";
+
+    tip.textContent =
+      "You've finished today's habits. Use the extra time for one meaningful task.";
+
+  } else if (streak >= 7) {
+
+    motivation.innerHTML =
+      "<strong>You're on fire! 🔥</strong><br>" +
+      streak +
+      " days of consistency. Don't break the chain.";
+
+    tip.textContent =
+      "Consistency beats intensity. Keep your routine simple.";
+
+  } else if (done > 0) {
+
+    motivation.innerHTML =
+      "<strong>Good start! 💪</strong><br>" +
+      "You've completed " +
+      done +
+      " habit" +
+      (done === 1 ? "" : "s") +
+      " today.";
+
+    tip.textContent =
+      "Complete one more small habit before taking a long break.";
+
+  } else {
+
+    motivation.innerHTML =
+      "<strong>Fresh start! 🚀</strong><br>" +
+      "Pick one habit and complete it now.";
+
+    tip.textContent =
+      "Start with the easiest task. Momentum makes the next task easier.";
+  }
+}
+
+// ======================================================
+// BADGES
+// ======================================================
+
+function renderBadges() {
+
+  const containers = [
+    document.getElementById("badges"),
+    document.getElementById("analyticsBadges")
+  ];
+
+  const current =
+    calculateCurrentStreak();
+
+  const longest =
+    calculateLongestStreak();
+
+  const earlyBird =
+    habits.some(function(habit) {
+      return habit.time && habit.time < "09:00";
+    });
+
+  const available = [];
+
+  if (longest >= 7) {
+    available.push("🔥 7-Day Streak");
+  }
+
+  if (longest >= 30) {
+    available.push("🏆 30-Day Streak");
+  }
+
+  if (earlyBird) {
+    available.push("🌅 Early Bird");
+  }
+
+  if (current >= 3) {
+    available.push("⚡ Momentum");
+  }
+
+  if (!available.length) {
+    available.push("🔒 Keep going");
+  }
+
+  containers.forEach(function(container) {
+
+    container.innerHTML = "";
+
+    available.forEach(function(badgeText) {
+
+      const badge = document.createElement("div");
+      badge.className = "badge";
+      badge.textContent = badgeText;
+
+      container.appendChild(badge);
+    });
+  });
+}
+
+// ======================================================
+// CALENDAR
+// ======================================================
+
+function renderCalendar() {
+
+  const calendar =
+    document.getElementById("calendar");
+
+  calendar.innerHTML = "";
+
+  const today = new Date();
+
+  for (let i = 29; i >= 0; i--) {
+
+    const date = new Date(today);
+
+    date.setDate(
+      today.getDate() - i
+    );
+
+    const key = dateKey(date);
+
+    const day = document.createElement("div");
+    day.className = "cal-day";
+
+    if (completedDates[key]) {
+      day.classList.add("done");
+    }
+
+    if (i === 0) {
+      day.classList.add("today");
+    }
+
+    day.textContent = date.getDate();
+
+    day.title =
+      key +
+      (completedDates[key]
+        ? " — completed"
+        : " — incomplete");
+
+    calendar.appendChild(day);
+  }
+}
+
+// ======================================================
+// WEEKLY CHART
+// ======================================================
+
+function renderWeeklyChart() {
+
+  const chart =
+    document.getElementById("weeklyChart");
+
+  chart.innerHTML = "";
+
+  const today = new Date();
+
+  for (let i = 6; i >= 0; i--) {
+
+    const date = new Date(today);
+
+    date.setDate(
+      today.getDate() - i
+    );
+
+    const key = dateKey(date);
+
+    let percentage = 0;
+
+    if (completedDates[key]) {
+      percentage = 100;
+    } else if (habits.length) {
+
+      let completed = 0;
+
+      habits.forEach(function(habit) {
+
+        if (
+          habit.days &&
+          habit.days[key]
+        ) {
+          completed++;
+        }
+      });
+
+      percentage = Math.round(
+        (completed / habits.length) * 100
+      );
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "bar-wrap";
+
+    const bar = document.createElement("div");
+    bar.className = "bar";
+
+    bar.style.height =
+      Math.max(percentage, 4) + "%";
+
+    bar.title =
+      percentage + "% completed";
+
+    const label = document.createElement("div");
+    label.className = "bar-label";
+
+    label.textContent =
+      date.toLocaleDateString(
+        undefined,
+        { weekday: "short" }
+      ).slice(0, 3);
+
+    wrap.appendChild(bar);
+    wrap.appendChild(label);
+
+    chart.appendChild(wrap);
+  }
+}
+
+// ======================================================
+// ADD HABIT MODAL
+// ======================================================
+
+addHabitBtn.addEventListener("click", function() {
+
+  habitName.value = "";
+  habitIcon.value = "⭐";
+  habitTime.value = "";
+
+  habitModal.classList.add("show");
+
+  setTimeout(function() {
+    habitName.focus();
+  }, 100);
+});
+
+cancelHabit.addEventListener("click", function() {
+  habitModal.classList.remove("show");
+});
+
+habitModal.addEventListener("click", function(event) {
+
+  if (event.target === habitModal) {
+    habitModal.classList.remove("show");
+  }
+});
+
+saveHabit.addEventListener("click", function() {
+
+  const name =
+    habitName.value.trim();
+
+  if (!name) {
+    showToast("Please enter a habit name.");
+    habitName.focus();
+    return;
+  }
+
+  const newHabit = {
+    id: Date.now(),
+    name: name,
+    icon: habitIcon.value.trim() || "⭐",
+    time: habitTime.value,
+    completed: false,
+    days: {}
+  };
+
+  habits.push(newHabit);
+
+  saveAll();
+  renderHabits();
+  renderCalendar();
+  renderWeeklyChart();
+
+  habitModal.classList.remove("show");
+
+  showToast("Habit added! ✨");
+});
+
+// ======================================================
+// SPEECH RECOGNITION
+// ======================================================
+
+function setupSpeechRecognition() {
+
+  const SpeechRecognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+
+    micBtn.style.display = "none";
+
+    return;
+  }
+
+  recognition =
+    new SpeechRecognition();
+
+  recognition.lang = "en-IN";
+  recognition.continuous = false;
+  recognition.interimResults = true;
+
+  recognition.onstart = function() {
+
+    isRecording = true;
+
+    micBtn.classList.add("recording");
+    micBtn.textContent = "⏹️";
+
+    showToast("Listening...");
+  };
+
+  recognition.onresult = function(event) {
+
+    let finalText = "";
+
+    for (
+      let i = event.resultIndex;
+      i < event.results.length;
+      i++
+    ) {
+
+      finalText +=
+        event.results[i][0].transcript;
+    }
+
+    inputEl.value = finalText;
+
+    autoResize();
+  };
+
+  recognition.onerror = function(event) {
+
+    console.warn(
+      "Speech recognition error:",
+      event.error
+    );
+
+    showToast(
+      "Microphone error: " +
+      event.error
+    );
+  };
+
+  recognition.onend = function() {
+
+    isRecording = false;
+
+    micBtn.classList.remove("recording");
+    micBtn.textContent = "🎙️";
+  };
+}
+
+micBtn.addEventListener("click", function() {
+
+  if (!recognition) {
+    showToast("Voice input is not supported in this browser.");
+    return;
+  }
+
+  if (isRecording) {
+    recognition.stop();
+  } else {
+
+    try {
+      recognition.start();
+    } catch (error) {
+      console.warn(error);
+    }
+  }
+});
+
+// ======================================================
+// REMINDERS
+// ======================================================
+
+function checkReminders() {
+
+  const now = new Date();
+
+  const currentTime =
+    String(now.getHours()).padStart(2, "0") +
+    ":" +
+    String(now.getMinutes()).padStart(2, "0");
+
+  habits.forEach(function(habit) {
+
+    if (
+      habit.time &&
+      habit.time === currentTime &&
+      !habit.completed
+    ) {
+
+      showToast(
+        "⏰ Reminder: " +
+        habit.name
+      );
+    }
+  });
+}
+
+// ======================================================
+// INITIALIZE
+// ======================================================
+
+function initialize() {
+
+  loadAll();
+
+  applyTheme();
+
+  renderHabits();
+  renderCalendar();
+  renderWeeklyChart();
+  renderBadges();
+
+  messagesEl.innerHTML = "";
+
+  if (history.length) {
+
+    history.forEach(function(message) {
+
+      addMessage(
+        message.role,
+        message.text,
+        false
+      );
+    });
+
+  } else {
+
+    showWelcome();
+  }
+
+  setupSpeechRecognition();
+
+  updateDashboard();
+
+  setInterval(
+    checkReminders,
+    60000
+  );
+}
+
+initialize();
+</script>
+
+</body>
+</html>
